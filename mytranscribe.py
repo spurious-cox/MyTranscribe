@@ -20,7 +20,7 @@ MyTranscribe.app is self-contained: py2app bundles Python 3.12, PyObjC, torch,
 whisper and the models. Audio goes to Whisper as a float32 array, so ffmpeg
 is not needed.
 
-Version  : 2.8.1
+Version  : 2.9.0
 Date     : November 2026
 
 Usage:
@@ -51,12 +51,12 @@ from AppKit import (
     NSWindowStyleMaskResizable, NSWindowStyleMaskTitled, NSPanel,
     NSWindowStyleMaskNonactivatingPanel, NSWindowStyleMaskUtilityWindow,
     NSFloatingWindowLevel, NSWindowCollectionBehaviorCanJoinAllSpaces,
-    NSWindowCollectionBehaviorFullScreenAuxiliary)
+    NSWindowCollectionBehaviorFullScreenAuxiliary, NSLinkAttributeName)
 from ApplicationServices import AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt
-from Foundation import NSURL, NSUserDefaults, NSAttributedString, NSBundle, NSMakeRange, NSMakeRect, NSMakeSize, NSObject, NSTimer
+from Foundation import NSURL, NSUserDefaults, NSAttributedString, NSMutableAttributedString, NSBundle, NSMakeRange, NSMakeRect, NSMakeSize, NSObject, NSTimer
 from libdispatch import dispatch_queue_create
 
-VERSION = "2.8.1"
+VERSION = "2.9.0"
 ICON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
 LOG = os.path.expanduser("~/Library/Logs/MyTranscribe.log")
 RATE = 16000                 # Whisper's native rate
@@ -355,6 +355,7 @@ class Controller(NSObject):
 
         self.btn = button("Capture", 12, 80, "toggle:")
         self.btn.setKeyEquivalent_("\r")
+        self.btn.setToolTip_("Start or stop transcribing (Return)")
         lab = NSTextField.labelWithString_("Model:")
         lab.setFrame_(NSMakeRect(104, H - 36, 50, 20))
         lab.setAutoresizingMask_(NSViewMinYMargin)
@@ -364,6 +365,7 @@ class Controller(NSObject):
         self.popup.addItemsWithTitles_(MODELS)
         self.popup.selectItemWithTitle_(DEFAULT_MODEL)
         self.popup.setAutoresizingMask_(NSViewMinYMargin)
+        self.popup.setToolTip_("Whisper model: tiny is fastest, small most accurate; .en = English only")
         v.addSubview_(self.popup)
         self.spk_box = NSButton.alloc().initWithFrame_(
             NSMakeRect(276, H - 40, 96, 28))
@@ -371,6 +373,7 @@ class Controller(NSObject):
         self.spk_box.setTitle_("Speakers")
         self.spk_box.setState_(1)
         self.spk_box.setAutoresizingMask_(NSViewMinYMargin)
+        self.spk_box.setToolTip_("Label who is talking: Speaker 1, Speaker 2, …")
         v.addSubview_(self.spk_box)
         self.float_box = NSButton.alloc().initWithFrame_(
             NSMakeRect(W - 96, 38, 86, 24))
@@ -379,11 +382,12 @@ class Controller(NSObject):
         self.float_box.setTarget_(self)
         self.float_box.setAction_("floatChanged:")
         self.float_box.setAutoresizingMask_(NSViewMinXMargin)
+        self.float_box.setToolTip_("Switch to a small panel that floats in front of other apps")
         v.addSubview_(self.float_box)
         right = NSViewMinXMargin | NSViewMinYMargin
-        button("Copy", W - 76, 64, "copy:", right)
-        button("Save…", W - 146, 64, "save:", right)
-        button("Clear", W - 216, 64, "clear:", right)
+        button("Copy", W - 76, 64, "copy:", right).setToolTip_("Copy the text to the clipboard")
+        button("Save…", W - 146, 64, "save:", right).setToolTip_("Save the text to a file")
+        button("Clear", W - 216, 64, "clear:", right).setToolTip_("Empty the text")
 
         # Mac/Mic switch: the chosen one is filled with the accent color. The
         # tab view underneath has no tabs of its own.
@@ -411,6 +415,7 @@ class Controller(NSObject):
         self.level.setMinValue_(0)
         self.level.setMaxValue_(0.3)
         self.level.setAutoresizingMask_(NSViewWidthSizable)
+        self.level.setToolTip_("Sound level being heard")
         v.addSubview_(self.level)
 
     def windowDidResize_(self, note):
@@ -457,6 +462,7 @@ class Controller(NSObject):
         self.pbtn.setTarget_(self)
         self.pbtn.setAction_("toggle:")
         self.pbtn.setAutoresizingMask_(top)
+        self.pbtn.setToolTip_("Start or stop transcribing")
         v.addSubview_(self.pbtn)
         self.psource = self.make_switch(NSMakeRect(88, H - 35, 116, 26))
         self.psource.setAutoresizingMask_(top)
@@ -467,6 +473,7 @@ class Controller(NSObject):
         full.setTarget_(self)
         full.setAction_("fullWindow:")
         full.setAutoresizingMask_(NSViewMinXMargin | top)
+        full.setToolTip_("Back to the full window")
         v.addSubview_(full)
         self.type_box = NSButton.alloc().initWithFrame_(NSMakeRect(10, H - 62, 200, 24))
         self.type_box.setButtonType_(NSButtonTypeSwitch)
@@ -474,6 +481,7 @@ class Controller(NSObject):
         self.type_box.setTarget_(self)
         self.type_box.setAction_("typeChanged:")
         self.type_box.setAutoresizingMask_(top)
+        self.type_box.setToolTip_("Type the text into the app you are using, at its cursor")
         v.addSubview_(self.type_box)
 
         scroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(8, 26, W - 16, H - 92))
@@ -529,10 +537,49 @@ class Controller(NSObject):
             b.layer().setCornerRadius_(6)
             b.setTitle_(name)
             b.setTag_(i)
+            b.setToolTip_("Transcribe what this Mac is playing" if name == MAC
+                          else "Transcribe what you say into the microphone")
             b.setTarget_(self)
             b.setAction_("sourceChanged:")
             box.addSubview_(b)
         return box
+
+    def showHelp_(self, sender):
+        """A plain window of short usage notes (Help ▸ MyTranscribe Help)."""
+        if getattr(self, "help_win", None) is None:
+            w = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+                NSMakeRect(0, 0, 480, 560),
+                NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                NSWindowStyleMaskResizable, NSBackingStoreBuffered, False)
+            w.setTitle_("MyTranscribe Help")
+            w.setReleasedWhenClosed_(False)
+            w.center()
+            scroll = NSScrollView.alloc().initWithFrame_(w.contentView().bounds())
+            scroll.setHasVerticalScroller_(True)
+            scroll.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable)
+            tv = NSTextView.alloc().initWithFrame_(scroll.bounds())
+            tv.setEditable_(False)
+            tv.setTextContainerInset_(NSMakeSize(14, 14))
+            tv.setAutoresizingMask_(NSViewWidthSizable)
+            tv.textStorage().setAttributedString_(help_text())
+            scroll.setDocumentView_(tv)
+            w.setContentView_(scroll)
+            self.help_win = w
+        self.help_win.makeKeyAndOrderFront_(None)
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+
+    def showAbout_(self, sender):
+        credits = NSAttributedString.alloc().initWithString_attributes_(
+            GITHUB, {NSLinkAttributeName: NSURL.URLWithString_(GITHUB),
+                     NSFontAttributeName: NSFont.systemFontOfSize_(11)})
+        app = NSApplication.sharedApplication()
+        app.orderFrontStandardAboutPanelWithOptions_({
+            "ApplicationName": "MyTranscribe",
+            "ApplicationVersion": VERSION,
+            "Version": "",
+            "Copyright": "© 2026 Tim McCoy. MIT License.",
+            "Credits": credits})
+        app.activateIgnoringOtherApps_(True)
 
     def sourceChanged_(self, sender):
         self.tabs.selectTabViewItemWithIdentifier_(SOURCES[sender.tag()])
@@ -870,6 +917,45 @@ def hallucinated(seg):
             and seg.get("avg_logprob", 0) < HALLU_LOGPROB)
 
 
+GITHUB = "https://github.com/spurious-cox/MyTranscribe"
+HELP = [
+    ("Getting started",
+     "Choose Mac to transcribe whatever this Mac is playing, or Mic to "
+     "transcribe what you say into the microphone. Click Capture (or press "
+     "Return). Text appears about every 10 seconds. Click Stop to finish."),
+    ("Model",
+     "tiny.en is fastest, small.en most accurate but slower; base.en is a "
+     "good balance. Models ending in .en are English only; base and small "
+     "understand other languages too."),
+    ("Speakers",
+     "Labels who is talking (Speaker 1, Speaker 2, …), guessed from their "
+     "voices. Best with Mac audio such as a meeting or a podcast."),
+    ("Line breaks",
+     "Say \u201cnew line\u201d to start a new line, or \u201cnew "
+     "paragraph\u201d to leave a blank line."),
+    ("Clear, Save…, Copy",
+     "Clear empties the text. Save… writes it to a text file. Copy puts it "
+     "on the clipboard."),
+    ("Floating",
+     "Swaps the window for a small panel that stays in front of other apps "
+     "without taking focus from them. Click Full Window, or close the panel, "
+     "to come back."),
+    ("Type at cursor",
+     "In the floating panel: click into a text field in another app, then "
+     "Capture. Each piece of text is typed there as if from the keyboard. "
+     "Nothing is typed into MyTranscribe itself, and the clipboard is not "
+     "used. Line breaks are sent as Shift-Return, so chat boxes don\u2019t send."),
+    ("Permissions",
+     "System Settings \u25b8 Privacy & Security:\n"
+     "\u2022 Screen & System Audio Recording \u2014 for Mac\n"
+     "\u2022 Microphone \u2014 for Mic\n"
+     "\u2022 Device Control and Data Access (Accessibility before macOS 27) "
+     "\u2014 for Type at cursor\n"
+     "After turning one on, quit and reopen MyTranscribe."),
+    ("Privacy",
+     "Everything is transcribed on this Mac. Nothing is sent anywhere."),
+]
+
 REPEAT_RE = re.compile(r"\b(.{3,80}?)(?:[\s,.]+\1\b){2,}", re.I)
 
 
@@ -922,11 +1008,31 @@ class Speakers:
         return self.last
 
 
-def install_menu(app):
+def help_text():
+    """HELP as styled text, in colors that follow light and dark mode."""
+    out = NSMutableAttributedString.alloc().init()
+    head = {NSFontAttributeName: NSFont.boldSystemFontOfSize_(14),
+            NSForegroundColorAttributeName: NSColor.labelColor()}
+    body = {NSFontAttributeName: NSFont.systemFontOfSize_(13),
+            NSForegroundColorAttributeName: NSColor.labelColor()}
+    for title, text in HELP:
+        out.appendAttributedString_(NSAttributedString.alloc().initWithString_attributes_(title + "\n", head))
+        out.appendAttributedString_(NSAttributedString.alloc().initWithString_attributes_(text + "\n\n", body))
+    link = dict(body)
+    link[NSLinkAttributeName] = NSURL.URLWithString_(GITHUB)
+    out.appendAttributedString_(NSAttributedString.alloc().initWithString_attributes_(GITHUB, link))
+    return out
+
+
+def install_menu(app, ctl):
     bar = NSMenu.alloc().init()
     app_item = NSMenuItem.alloc().init()
     bar.addItem_(app_item)
     app_menu = NSMenu.alloc().init()
+    about = app_menu.addItemWithTitle_action_keyEquivalent_(
+        "About MyTranscribe", "showAbout:", "")
+    about.setTarget_(ctl)
+    app_menu.addItem_(NSMenuItem.separatorItem())
     app_menu.addItemWithTitle_action_keyEquivalent_(
         "Quit MyTranscribe", "terminate:", "q")
     app_item.setSubmenu_(app_menu)
@@ -937,7 +1043,15 @@ def install_menu(app):
                             ("Select All", "selectAll:", "a")):
         edit.addItemWithTitle_action_keyEquivalent_(title, sel, key)
     edit_item.setSubmenu_(edit)
+    help_item = NSMenuItem.alloc().init()
+    bar.addItem_(help_item)
+    help_menu = NSMenu.alloc().initWithTitle_("Help")
+    item = help_menu.addItemWithTitle_action_keyEquivalent_(
+        "MyTranscribe Help", "showHelp:", "?")
+    item.setTarget_(ctl)
+    help_item.setSubmenu_(help_menu)
     app.setMainMenu_(bar)
+    app.setHelpMenu_(help_menu)
 
 
 def selftest_mic():
@@ -1001,12 +1115,12 @@ if __name__ == "__main__":
     info = NSBundle.mainBundle().infoDictionary()
     info["CFBundleName"] = "MyTranscribe"   # menu-bar name instead of "Python"
     app = NSApplication.sharedApplication()
-    install_menu(app)
     icon = NSImage.alloc().initWithContentsOfFile_(ICON)
     if icon is not None:
         app.setApplicationIconImage_(icon)
     app.setActivationPolicy_(0)             # regular app: Dock icon, focus
     ctl = Controller.alloc().init()
+    install_menu(app, ctl)
     if ctl.float_box.state():                   # reopen as it was left
         ctl.panel.orderFrontRegardless()
     else:

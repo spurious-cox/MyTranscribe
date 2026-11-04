@@ -1,4 +1,4 @@
-# MyTranscribe 2.8.1
+# MyTranscribe 2.9.0
 
 A small macOS app that transcribes what your Mac is playing, or what you say into the microphone, using OpenAI Whisper on your own machine.
 
@@ -23,7 +23,8 @@ Or download the disk image from the [latest release](https://github.com/spurious
 - **Type at cursor** — types each chunk as keystrokes wherever the cursor is in the frontmost app. The clipboard is not used.
 - **Spoken line breaks** — say "new line" or "new paragraph"; they are typed as Shift-Return, so chat boxes don't send.
 - Filters common Whisper hallucinations and collapses repeated phrases.
-- Copy and Save the transcript.
+- Clear, Save and Copy the transcript.
+- Help ▸ MyTranscribe Help explains each control; hover over a control for a tip.
 
 ## Requirements
 
