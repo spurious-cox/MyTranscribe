@@ -1,4 +1,4 @@
-# MyTranscribe 2.8.0
+# MyTranscribe 2.8.1
 
 A small macOS app that transcribes what your Mac is playing, or what you say into the microphone, using OpenAI Whisper on your own machine.
 

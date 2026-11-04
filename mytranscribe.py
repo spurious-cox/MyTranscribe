@@ -20,7 +20,7 @@ MyTranscribe.app is self-contained: py2app bundles Python 3.12, PyObjC, torch,
 whisper and the models. Audio goes to Whisper as a float32 array, so ffmpeg
 is not needed.
 
-Version  : 2.8.0
+Version  : 2.8.1
 Date     : November 2026
 
 Usage:
@@ -56,7 +56,7 @@ from ApplicationServices import AXIsProcessTrustedWithOptions, kAXTrustedCheckOp
 from Foundation import NSURL, NSUserDefaults, NSAttributedString, NSBundle, NSMakeRange, NSMakeRect, NSMakeSize, NSObject, NSTimer
 from libdispatch import dispatch_queue_create
 
-VERSION = "2.8.0"
+VERSION = "2.8.1"
 ICON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
 LOG = os.path.expanduser("~/Library/Logs/MyTranscribe.log")
 RATE = 16000                 # Whisper's native rate
@@ -587,6 +587,8 @@ class Controller(NSObject):
             ctl.setTarget_(self)
             ctl.setAction_("prefChanged:")
         self.tabs.setDelegate_(self)
+        NSApplication.sharedApplication().addObserver_forKeyPath_options_context_(
+            self, "effectiveAppearance", 0, None)
         # Typing stays on only while Accessibility still allows it.
         self.type_box.setState_(1 if d.boolForKey_("typeAtCursor") and can_type() else 0)
         self.float_box.setState_(1 if d.boolForKey_("floating") else 0)
@@ -613,18 +615,33 @@ class Controller(NSObject):
     def show_source(self, name):
         if not self.running and self.models_ready.is_set():
             self.msgs.put(("ready", None))
-        on = SOURCES.index(name)
-        for box in (self.source, self.psource):
-            for b in box.subviews():
-                chosen = b.tag() == on
-                b.layer().setBackgroundColor_(
-                    (NSColor.controlAccentColor() if chosen
-                     else NSColor.quaternaryLabelColor()).CGColor())
-                b.setAttributedTitle_(NSAttributedString.alloc().initWithString_attributes_(
-                    str(b.title()), {
-                        NSFontAttributeName: NSFont.boldSystemFontOfSize_(13),
-                        NSForegroundColorAttributeName: (NSColor.whiteColor() if chosen
-                                                         else NSColor.secondaryLabelColor())}))
+        self.paint_sources()
+
+    @objc.python_method
+    def paint_sources(self):
+        """Fill the chosen Mac/Mic button with the accent color. Layer colors
+        are fixed CGColors, so they are resolved for the current light or
+        dark appearance and repainted when it changes."""
+        on = SOURCES.index(str(self.tabs.selectedTabViewItem().label()))
+
+        def paint():
+            for box in (self.source, self.psource):
+                for b in box.subviews():
+                    chosen = b.tag() == on
+                    b.layer().setBackgroundColor_(
+                        (NSColor.controlAccentColor() if chosen
+                         else NSColor.quaternaryLabelColor()).CGColor())
+                    b.setAttributedTitle_(NSAttributedString.alloc().initWithString_attributes_(
+                        str(b.title()), {
+                            NSFontAttributeName: NSFont.boldSystemFontOfSize_(13),
+                            NSForegroundColorAttributeName: (NSColor.whiteColor() if chosen
+                                                             else NSColor.secondaryLabelColor())}))
+        NSApplication.sharedApplication().effectiveAppearance() \
+            .performAsCurrentDrawingAppearance_(paint)
+
+    def observeValueForKeyPath_ofObject_change_context_(self, path, obj, change, ctx):
+        if path == "effectiveAppearance":       # Light/Dark switched
+            self.paint_sources()
 
     @objc.python_method
     def make_pane(self, title):
