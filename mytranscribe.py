@@ -1,5 +1,5 @@
-#!/Applications/Xcode.app/Contents/Developer/usr/bin/python3
-# Copyright (c) 2026 Timothy McCoy. All rights reserved.
+#!/usr/bin/env python3
+# Copyright (c) 2026 Tim McCoy. MIT License — see LICENSE.
 """
 mytranscribe.py
 ---------------
@@ -16,10 +16,11 @@ The clipboard is not used. Saying "new line" starts a new line and "new
 paragraph" leaves a blank line; they are typed as Shift-Return, which chat
 boxes take as a line break rather than Send.
 
-Runs under the Xcode Python 3.9, which already has PyObjC, torch and whisper.
-There is no ffmpeg on this Mac, so audio goes to Whisper as a float32 array.
+MyTranscribe.app is self-contained: py2app bundles Python 3.12, PyObjC, torch,
+whisper and the models. Audio goes to Whisper as a float32 array, so ffmpeg
+is not needed.
 
-Version  : 2.7.0
+Version  : 2.8.0
 Date     : November 2026
 
 Usage:
@@ -55,7 +56,7 @@ from ApplicationServices import AXIsProcessTrustedWithOptions, kAXTrustedCheckOp
 from Foundation import NSURL, NSUserDefaults, NSAttributedString, NSBundle, NSMakeRange, NSMakeRect, NSMakeSize, NSObject, NSTimer
 from libdispatch import dispatch_queue_create
 
-VERSION = "2.7.0"
+VERSION = "2.8.0"
 ICON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
 LOG = os.path.expanduser("~/Library/Logs/MyTranscribe.log")
 RATE = 16000                 # Whisper's native rate
@@ -861,7 +862,7 @@ def collapse_repeats(text):
 
 
 def model_path(name):
-    for d in MODEL_DIRS + [os.path.expanduser("~/My_Applications/MyTranscribe/models")]:
+    for d in MODEL_DIRS:
         p = os.path.join(d, name)
         if os.path.exists(p):
             return p
@@ -936,6 +937,24 @@ def selftest_mic():
     return 0 if audio.size else 2
 
 
+PREF_KEYS = ["model", "speakerLabels", "tab", "floating", "typeAtCursor",
+             "NSWindow Frame " + FRAME_NAME, "NSWindow Frame " + PANEL_FRAME]
+
+
+def migrate_prefs():
+    """Bring over settings saved by 2.7.0 and earlier, which ran under a
+    plain Python and so kept them in the com.apple.python3 domain."""
+    mine = NSUserDefaults.standardUserDefaults()
+    if mine.objectForKey_("migratedPrefs"):
+        return
+    old = NSUserDefaults.alloc().initWithSuiteName_("com.apple.python3")
+    for key in PREF_KEYS:
+        value = old.objectForKey_(key) if old else None
+        if value is not None and mine.objectForKey_(key) is None:
+            mine.setObject_forKey_(value, key)
+    mine.setBool_forKey_(True, "migratedPrefs")
+
+
 def selftest():
     tap = AudioTap.alloc().init()
     err = start_capture(tap)
@@ -961,6 +980,7 @@ if __name__ == "__main__":
     sys.stderr = open(os.path.expanduser("~/Library/Logs/MyTranscribe.err"), "a")
     faulthandler.enable(sys.stderr)
     logline(f"start v{VERSION} argv={sys.argv} py={sys.version.split()[0]}")
+    migrate_prefs()
     info = NSBundle.mainBundle().infoDictionary()
     info["CFBundleName"] = "MyTranscribe"   # menu-bar name instead of "Python"
     app = NSApplication.sharedApplication()

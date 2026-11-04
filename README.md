@@ -1,4 +1,4 @@
-# MyTranscribe 2.7.0
+# MyTranscribe 2.8.0
 
 A small macOS app that transcribes what your Mac is playing, or what you say into the microphone, using OpenAI Whisper on your own machine.
 
@@ -16,15 +16,21 @@ A small macOS app that transcribes what your Mac is playing, or what you say int
 ## Requirements
 
 - macOS 13 or later, Apple silicon (arm64)
-- Xcode's Python 3, with PyObjC, `torch` and `openai-whisper` installed
+
+The app is self-contained (about 1.2 GB): Python, PyObjC, PyTorch, Whisper and the models are inside it. Nothing else needs to be installed, and nothing is downloaded.
 
 ## Build
 
-`build.sh` compiles a small launcher into `/Applications/MyTranscribe.app` that runs `mytranscribe.py` from this folder. Replace the `codesign` identity in `build.sh` with your own, then:
+Needs the python.org Python 3.12 and the two models in `models/` (Whisper `base.en.pt` and the SpeechBrain ECAPA speaker model in `ecapa/`). They are not in the repository: `base.en.pt` is what `whisper.load_model("base.en")` downloads, and the ECAPA model is [speechbrain/spkrec-ecapa-voxceleb](https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb).
 
 ```
+/Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m venv venv
+./venv/bin/pip install "setuptools<81" wheel
+./venv/bin/pip install --no-build-isolation -r requirements.txt
 ./build.sh
 ```
+
+Replace `SIGN_ID` in `build.sh` with your own signing identity.
 
 ## Permissions
 
@@ -38,4 +44,4 @@ Report problems at https://github.com/spurious-cox/MyTranscribe/issues
 
 ## License
 
-Copyright © 2026 Timothy McCoy. All rights reserved.
+MIT — see [LICENSE](LICENSE).

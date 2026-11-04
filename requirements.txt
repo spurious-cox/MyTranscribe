@@ -1,0 +1,14 @@
+numpy==2.5.4
+openai-whisper==20250625
+py2app==0.28.10
+pyobjc-core==13.0
+pyobjc-framework-ApplicationServices==13.0
+pyobjc-framework-AVFoundation==13.0
+pyobjc-framework-Cocoa==13.0
+pyobjc-framework-CoreMedia==13.0
+pyobjc-framework-libdispatch==13.0
+pyobjc-framework-Quartz==13.0
+pyobjc-framework-ScreenCaptureKit==13.0
+speechbrain==1.1.2
+torch==2.15.0
+torchaudio==2.11.1

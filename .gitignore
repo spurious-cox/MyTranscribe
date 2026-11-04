@@ -3,3 +3,5 @@ models/
 build/
 *.app/
 .DS_Store
+venv/
+dist/
