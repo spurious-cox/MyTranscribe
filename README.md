@@ -15,7 +15,7 @@ A small macOS app that transcribes what your Mac is playing, or what you say int
 
 ## Requirements
 
-- macOS 13 or later, Apple silicon (arm64)
+- macOS 14 or later, Apple silicon (arm64)
 
 The app is self-contained (about 1.2 GB): Python, PyObjC, PyTorch, Whisper and the models are inside it. Nothing else needs to be installed, and nothing is downloaded.
 

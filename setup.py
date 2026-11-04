@@ -1,10 +1,11 @@
-"""py2app build for MyTranscribe.app — v1.0.0
+"""py2app build for MyTranscribe.app — v1.0.1
 
     ./venv/bin/python setup.py py2app
 
 The venv is built on the python.org Python 3.12. py2app copies that
 interpreter, PyObjC, torch, whisper and the models into the app, so nothing
 else has to be installed. Apple silicon only: torch ships no Intel wheels.
+macOS 14 or later: the torch libraries are built for it.
 """
 
 import re
@@ -52,7 +53,7 @@ OPTIONS = {
         "CFBundleIdentifier": "com.timmccoy.mytranscribe",
         "CFBundleShortVersionString": VERSION,
         "CFBundleVersion": VERSION,
-        "LSMinimumSystemVersion": "13.0",
+        "LSMinimumSystemVersion": "14.0",
         "NSHighResolutionCapable": True,
         "NSMicrophoneUsageDescription":
             "MyTranscribe listens to your voice when Mic is chosen so it can transcribe what you say.",
