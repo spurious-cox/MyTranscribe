@@ -2,6 +2,18 @@
 
 A small macOS app that transcribes what your Mac is playing, or what you say into the microphone, using OpenAI Whisper on your own machine.
 
+<img src="MyTranscribe-screenshot.png" alt="MyTranscribe main window and floating panel; the Floating switch and Full Window button swap between them" width="600">
+
+## Install
+
+With [Homebrew](https://brew.sh):
+
+```
+brew install --cask spurious-cox/tap/mytranscribe
+```
+
+Or download the disk image from the [latest release](https://github.com/spurious-cox/MyTranscribe/releases/latest) and drag MyTranscribe to Applications.
+
 ## Features
 
 - **Mac / Mic** — transcribe system audio (ScreenCaptureKit) or the microphone.
@@ -19,7 +31,7 @@ A small macOS app that transcribes what your Mac is playing, or what you say int
 
 The app is self-contained (about 1.2 GB): Python, PyObjC, PyTorch, Whisper and the models are inside it. Nothing else needs to be installed, and nothing is downloaded.
 
-## Build
+## Building from source
 
 Needs the python.org Python 3.12 and the two models in `models/` (Whisper `base.en.pt` and the SpeechBrain ECAPA speaker model in `ecapa/`). They are not in the repository: `base.en.pt` is what `whisper.load_model("base.en")` downloads, and the ECAPA model is [speechbrain/spkrec-ecapa-voxceleb](https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb).
 
