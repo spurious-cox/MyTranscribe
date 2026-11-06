@@ -4,6 +4,22 @@ A small macOS app that transcribes what your Mac is playing, or what you say int
 
 <img src="MyTranscribe-screenshot.png" alt="MyTranscribe main window and floating panel; the Floating switch and Full Window button swap between them" width="600">
 
+## Which one: MyTranscribe or Speak2Transcribe?
+
+MyTranscribe has a sibling, [Speak2Transcribe](https://github.com/spurious-cox/speak2transcribe): the same icon and the same Mic / Mac, floating panel and Type at cursor, rebuilt as a native Mac App Store app.
+
+| | MyTranscribe | Speak2Transcribe |
+|---|---|---|
+| Speech engine | OpenAI Whisper, bundled | Apple's on-device speech recognition |
+| Written in | Python + PyObjC | Swift + SwiftUI |
+| Install | Homebrew or disk image | Mac App Store (submitted; link to follow) |
+| Size | about 1.2 GB | small; Apple's speech model downloads once |
+| Speaker labels | Yes | No |
+| Needs | macOS 14+, Apple silicon | macOS 26+, Apple silicon |
+| Source | here, MIT | [its own repo](https://github.com/spurious-cox/speak2transcribe) |
+
+Both are free, run entirely on your Mac, and type at the cursor the same way.
+
 ## Install
 
 With [Homebrew](https://brew.sh):
