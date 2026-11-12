@@ -1,4 +1,4 @@
-# MyTranscribe 2.9.0
+# MyTranscribe 2.10.1
 
 A small macOS app that transcribes what your Mac is playing, or what you say into the microphone, using OpenAI Whisper on your own machine.
 
@@ -33,7 +33,9 @@ Or download the disk image from the [latest release](https://github.com/spurious
 ## Features
 
 - **Mac / Mic** — transcribe system audio (ScreenCaptureKit) or the microphone.
-- **Capture** — text appears in 10-second chunks while it listens; click again to stop.
+- **Capture** — text appears in chunks while it listens; click again to stop.
+- **Pause / Resume** — hold transcribing without stopping the capture; greyed out unless a capture is running.
+- **Chunk slider** — 10 to 30 seconds of audio per chunk (default 20). Longer is usually more accurate, shorter shows text sooner. Remembered between runs.
 - **Speakers** — optional speaker labels.
 - **Floating** — a small panel that stays in front of other apps and never takes focus from them.
 - **Type at cursor** — types each chunk as keystrokes wherever the cursor is in the frontmost app. The clipboard is not used.
@@ -74,3 +76,7 @@ Report problems at https://github.com/spurious-cox/MyTranscribe/issues
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Automatic transcripts
+
+Every capture is saved as it grows to `iCloud Drive/Transcripts/transcript_<date>_<time>.txt` (one file per capture). Save… is still there for saving elsewhere.

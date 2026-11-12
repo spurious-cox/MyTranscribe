@@ -20,7 +20,7 @@ MyTranscribe.app is self-contained: py2app bundles Python 3.12, PyObjC, torch,
 whisper and the models. Audio goes to Whisper as a float32 array, so ffmpeg
 is not needed.
 
-Version  : 2.9.0
+Version  : 2.10.1
 Date     : November 2026
 
 Usage:
@@ -45,7 +45,7 @@ from AppKit import (
     NSApplication, NSBackingStoreBuffered, NSColor, NSFontAttributeName,
     NSForegroundColorAttributeName, NSMenu, NSMenuItem, NSBezelBorder, NSBezelStyleRounded,
     NSButton, NSButtonTypeSwitch, NSFont, NSPasteboard, NSPasteboardTypeString, NSPopUpButton,
-    NSProgressIndicator, NSSavePanel, NSView, NSLineBreakByWordWrapping, NSScrollView, NSTabView, NSTabViewItem, NSTextField, NSWorkspace, NSTextView,
+    NSProgressIndicator, NSSavePanel, NSSlider, NSView, NSLineBreakByWordWrapping, NSScrollView, NSTabView, NSTabViewItem, NSTextField, NSWorkspace, NSTextView,
     NSViewHeightSizable, NSViewMinXMargin, NSViewMinYMargin, NSViewWidthSizable,
     NSImage, NSWindow, NSWindowStyleMaskClosable, NSWindowStyleMaskMiniaturizable,
     NSWindowStyleMaskResizable, NSWindowStyleMaskTitled, NSPanel,
@@ -56,11 +56,12 @@ from ApplicationServices import AXIsProcessTrustedWithOptions, kAXTrustedCheckOp
 from Foundation import NSURL, NSUserDefaults, NSAttributedString, NSMutableAttributedString, NSBundle, NSMakeRange, NSMakeRect, NSMakeSize, NSObject, NSTimer
 from libdispatch import dispatch_queue_create
 
-VERSION = "2.9.0"
+VERSION = "2.10.1"
 ICON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
 LOG = os.path.expanduser("~/Library/Logs/MyTranscribe.log")
 RATE = 16000                 # Whisper's native rate
-CHUNK_SECONDS = 10           # transcribe every N seconds of audio
+CHUNK_SECONDS = 20           # default: transcribe every N seconds of audio
+CHUNK_MIN, CHUNK_MAX = 10, 30   # the range of the Chunk slider
 SILENCE_RMS = 0.002          # below this a chunk is treated as silence
 HALLU_COMPRESSION = 2.4      # segments more repetitive than this are dropped
 HALLU_NO_SPEECH = 0.6        # with avg_logprob below HALLU_LOGPROB: silence
@@ -273,6 +274,28 @@ def can_type(prompt=False):
 BREAK_RE = re.compile(r"[\s,.;:]*\bnew[\s-]?(line|paragraph)\b[\s,.;:!?]*", re.I)
 
 
+TRANSCRIPTS = os.path.expanduser(
+    "~/Library/Mobile Documents/com~apple~CloudDocs/Transcripts")
+
+
+def autosave(path, text):
+    """Write the session's transcript to path (None: make a new file name in
+    iCloud Drive/Transcripts). Returns the path, or None if it failed."""
+    try:
+        if path is None:
+            os.makedirs(TRANSCRIPTS, exist_ok=True)
+            path = os.path.join(TRANSCRIPTS, time.strftime(
+                "transcript_%Y-%m-%d_%H.%M.%S.txt"))
+        tmp = path + ".tmp"
+        with open(tmp, "w") as fh:
+            fh.write(text.strip() + "\n")
+        os.replace(tmp, path)
+        return path
+    except OSError as exc:
+        logline(f"autosave failed: {exc!r}")
+        return None
+
+
 def spoken_breaks(text):
     """Turn the spoken words "new line" / "new paragraph" into line breaks."""
     return BREAK_RE.sub(
@@ -312,11 +335,14 @@ class Controller(NSObject):
         self.msgs = queue.Queue()
         self.tap = None
         self.running = False
+        self.paused = False
+        self.chunk_seconds = CHUNK_SECONDS
         self.model = None
         self.model_name = None
         self.speakers = None
         self.models_ready = threading.Event()
         self.run_source = "system"
+        self.save_path = None
         self.typeq = queue.Queue()
         self.build()
         self.build_panel()
@@ -335,7 +361,7 @@ class Controller(NSObject):
         self.win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
             NSMakeRect(0, 0, 640, 420), style, NSBackingStoreBuffered, False)
         self.win.setTitle_(f"MyTranscribe {VERSION}")
-        self.win.setMinSize_(NSMakeSize(480, 300))
+        self.win.setMinSize_(NSMakeSize(600, 300))   # the button row needs ~596pt
         self.win.setReleasedWhenClosed_(False)
         self.win.setDelegate_(self)
         if not self.win.setFrameUsingName_(FRAME_NAME):   # remembered position
@@ -394,6 +420,32 @@ class Controller(NSObject):
         self.source = self.make_switch(NSMakeRect(12, H - 76, 150, 26))
         self.source.setAutoresizingMask_(NSViewMinYMargin)
         v.addSubview_(self.source)
+        self.pause_btn = button("Pause", 172, 80, "pause:")
+        self.pause_btn.setFrame_(NSMakeRect(172, H - 78, 80, 28))
+        self.pause_btn.setEnabled_(False)
+        self.pause_btn.setToolTip_("Pause or resume transcribing without stopping the capture")
+        tip = ("How many seconds of audio to gather before transcribing: longer is "
+               "usually more accurate, shorter shows text sooner")
+        self.chunk_lab = NSTextField.labelWithString_("Chunk:")
+        self.chunk_lab.setFrame_(NSMakeRect(268, H - 72, 46, 20))
+        self.chunk_lab.setAutoresizingMask_(NSViewMinYMargin)
+        self.chunk_lab.setToolTip_(tip)
+        v.addSubview_(self.chunk_lab)
+        self.chunk_slider = NSSlider.alloc().initWithFrame_(NSMakeRect(316, H - 74, 130, 24))
+        self.chunk_slider.setMinValue_(CHUNK_MIN)
+        self.chunk_slider.setMaxValue_(CHUNK_MAX)
+        self.chunk_slider.setIntegerValue_(CHUNK_SECONDS)
+        self.chunk_slider.setNumberOfTickMarks_(CHUNK_MAX - CHUNK_MIN + 1)
+        self.chunk_slider.setAllowsTickMarkValuesOnly_(True)
+        self.chunk_slider.setTarget_(self)
+        self.chunk_slider.setAction_("chunkChanged:")
+        self.chunk_slider.setAutoresizingMask_(NSViewMinYMargin)
+        self.chunk_slider.setToolTip_(tip)
+        v.addSubview_(self.chunk_slider)
+        self.chunk_val = NSTextField.labelWithString_(f"{CHUNK_SECONDS} s")
+        self.chunk_val.setFrame_(NSMakeRect(450, H - 72, 44, 20))
+        self.chunk_val.setAutoresizingMask_(NSViewMinYMargin)
+        v.addSubview_(self.chunk_val)
         self.tabs = NSTabView.alloc().initWithFrame_(
             NSMakeRect(12, 62, W - 24, H - 142))
         self.tabs.setTabViewType_(4)            # NSNoTabsBezelBorder
@@ -404,7 +456,7 @@ class Controller(NSObject):
 
         self.status = NSTextField.labelWithString_(
             "Ready. Transcribes whatever the Mac is playing.")
-        self.status.setFrame_(NSMakeRect(12, 30, W - 116, 36))
+        self.status.setFrame_(NSMakeRect(12, 30, W - 116, 32))
         self.status.setLineBreakMode_(NSLineBreakByWordWrapping)
         self.status.setMaximumNumberOfLines_(2)
         self.status.setAutoresizingMask_(NSViewWidthSizable)
@@ -417,6 +469,9 @@ class Controller(NSObject):
         self.level.setAutoresizingMask_(NSViewWidthSizable)
         self.level.setToolTip_("Sound level being heard")
         v.addSubview_(self.level)
+        # The window was restored to its saved size before any of this was
+        # laid out for W x H; bring the controls to the real size.
+        v.resizeSubviewsWithOldSize_(NSMakeSize(W, H))
 
     def windowDidResize_(self, note):
         self.windowDidMove_(note)
@@ -448,7 +503,7 @@ class Controller(NSObject):
         p.setHidesOnDeactivate_(False)
         p.setCollectionBehavior_(NSWindowCollectionBehaviorCanJoinAllSpaces |
                                  NSWindowCollectionBehaviorFullScreenAuxiliary)
-        p.setMinSize_(NSMakeSize(300, 140))
+        p.setMinSize_(NSMakeSize(320, 140))   # the top row needs 316pt
         p.setReleasedWhenClosed_(False)
         p.setDelegate_(self)
         if not p.setFrameUsingName_(PANEL_FRAME):
@@ -475,7 +530,7 @@ class Controller(NSObject):
         full.setAutoresizingMask_(NSViewMinXMargin | top)
         full.setToolTip_("Back to the full window")
         v.addSubview_(full)
-        self.type_box = NSButton.alloc().initWithFrame_(NSMakeRect(10, H - 62, 200, 24))
+        self.type_box = NSButton.alloc().initWithFrame_(NSMakeRect(10, H - 62, 150, 24))
         self.type_box.setButtonType_(NSButtonTypeSwitch)
         self.type_box.setTitle_("Type at cursor")
         self.type_box.setTarget_(self)
@@ -483,6 +538,15 @@ class Controller(NSObject):
         self.type_box.setAutoresizingMask_(top)
         self.type_box.setToolTip_("Type the text into the app you are using, at its cursor")
         v.addSubview_(self.type_box)
+        self.ppause = NSButton.alloc().initWithFrame_(NSMakeRect(W - 92, H - 64, 84, 26))
+        self.ppause.setTitle_("Pause")
+        self.ppause.setBezelStyle_(NSBezelStyleRounded)
+        self.ppause.setTarget_(self)
+        self.ppause.setAction_("pause:")
+        self.ppause.setAutoresizingMask_(NSViewMinXMargin | top)
+        self.ppause.setEnabled_(False)
+        self.ppause.setToolTip_("Pause or resume transcribing without stopping the capture")
+        v.addSubview_(self.ppause)
 
         scroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(8, 26, W - 16, H - 92))
         scroll.setHasVerticalScroller_(True)
@@ -500,6 +564,7 @@ class Controller(NSObject):
         self.pstatus.setFrame_(NSMakeRect(10, 4, W - 20, 18))
         self.pstatus.setAutoresizingMask_(NSViewWidthSizable)
         v.addSubview_(self.pstatus)
+        v.resizeSubviewsWithOldSize_(NSMakeSize(W, H))   # see build()
         self.panel = p
 
     @objc.python_method
@@ -639,6 +704,22 @@ class Controller(NSObject):
         # Typing stays on only while Accessibility still allows it.
         self.type_box.setState_(1 if d.boolForKey_("typeAtCursor") and can_type() else 0)
         self.float_box.setState_(1 if d.boolForKey_("floating") else 0)
+        if d.objectForKey_("chunkSeconds") is not None:
+            self.set_chunk(d.integerForKey_("chunkSeconds"))
+
+    @objc.python_method
+    def set_chunk(self, value):
+        """Chunk length in seconds, kept inside the slider's range; the
+        capture loop reads it again on every pass."""
+        self.chunk_seconds = max(CHUNK_MIN, min(CHUNK_MAX, int(value)))
+        self.chunk_slider.setIntegerValue_(self.chunk_seconds)
+        self.chunk_val.setStringValue_(f"{self.chunk_seconds} s")
+
+    def chunkChanged_(self, sender):
+        self.set_chunk(round(sender.doubleValue()))
+        d = NSUserDefaults.standardUserDefaults()
+        d.setInteger_forKey_(self.chunk_seconds, "chunkSeconds")
+        d.synchronize()
 
     def prefChanged_(self, sender):
         d = NSUserDefaults.standardUserDefaults()
@@ -742,6 +823,8 @@ class Controller(NSObject):
                                     NSFont.systemFontOfSize_(16)}))
                     tv.scrollRangeToVisible_(
                         NSMakeRange(tv.string().length(), 0))
+                    # Keep the session's transcript on disk as it grows.
+                    self.save_path = autosave(self.save_path, str(tv.string()))
                     # The panel and the typed text drop speaker labels (and
                     # the breaks before them); spoken breaks are kept.
                     plain = re.sub(r"\s*Speaker \d+:\s*", " ", val)
@@ -763,6 +846,8 @@ class Controller(NSObject):
                 elif kind == "stopped":
                     self.set_button("Capture", True)
                     self.running = False
+                    self.paused = False
+                    self.set_pause_ui()
         except queue.Empty:
             pass
         except Exception as exc:
@@ -775,6 +860,21 @@ class Controller(NSObject):
         for b in (self.btn, self.pbtn):
             b.setTitle_(title)
             b.setEnabled_(enabled)
+
+    @objc.python_method
+    def set_pause_ui(self):
+        """Both Pause buttons: live only while a capture is running."""
+        for b in (self.pause_btn, self.ppause):
+            b.setTitle_("Resume" if self.paused else "Pause")
+            b.setEnabled_(bool(self.running))
+
+    def pause_(self, sender):
+        if not self.running:
+            return
+        self.paused = not self.paused
+        self.set_pause_ui()
+        self.say("Paused. Press Resume to carry on." if self.paused
+                 else ("Speak now…" if self.run_source == "mic" else "Listening…"))
 
     def clear_(self, sender):
         self.cur_text().setString_("")
@@ -801,7 +901,10 @@ class Controller(NSObject):
             self.set_button("Stopping…", False)
             return
         self.running = True
+        self.paused = False
+        self.save_path = None   # a new transcript file for this capture
         self.set_button("Stop", True)
+        self.set_pause_ui()
         self.model_choice = str(self.popup.titleOfSelectedItem())
         self.use_speakers = bool(self.spk_box.state())
         self.run_source = ("mic" if str(self.tabs.selectedTabViewItem().label())
@@ -824,18 +927,30 @@ class Controller(NSObject):
                 self.say(err)
                 return
             self.say(("Speak now… " if mic else "Listening… ") + "(first text appears after "
-                     f"~{CHUNK_SECONDS} s of audio)")
+                     f"~{self.chunk_seconds} s of audio)")
             buf = np.zeros(0, dtype=np.float32)
+            was_paused = False
             while self.running:
                 time.sleep(0.5)
                 new = self.tap.take()
+                if self.paused:
+                    # Finish what was heard before the pause, then let the
+                    # sound go by unheard until Resume.
+                    if not was_paused:
+                        was_paused = True
+                        if buf.size >= RATE:
+                            self.transcribe(buf)
+                        buf = np.zeros(0, dtype=np.float32)
+                    self.msgs.put(("level", 0))
+                    continue
+                was_paused = False
                 if new.size:
                     buf = np.concatenate([buf, new])
                     self.msgs.put(("level", float(np.sqrt(np.mean(new ** 2)))))
                 if self.tap.error:
                     self.say(f"Capture problem: {self.tap.error}")
                     self.tap.error = None
-                if buf.size >= RATE * CHUNK_SECONDS:
+                if buf.size >= RATE * self.chunk_seconds:
                     self.transcribe(buf)
                     buf = np.zeros(0, dtype=np.float32)
             if buf.size >= RATE * 2:          # flush the tail
@@ -934,7 +1049,7 @@ HELP = [
      "Say \u201cnew line\u201d to start a new line, or \u201cnew "
      "paragraph\u201d to leave a blank line."),
     ("Clear, Save…, Copy",
-     "Clear empties the text. Save… writes it to a text file. Copy puts it "
+     "Every capture is also saved automatically, as it grows, to iCloud Drive/Transcripts/transcript_<date>_<time>.txt. Clear empties the text. Save… writes it to a text file of your choosing. Copy puts it "
      "on the clipboard."),
     ("Floating",
      "Swaps the window for a small panel that stays in front of other apps "
